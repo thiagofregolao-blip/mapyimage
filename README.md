@@ -1,304 +1,139 @@
 # Mapy Image Manager
 
-Un sistema de gestión de imágenes de productos para catálogos de e-commerce con soporte para 40,000+ productos.
+Sistema de gestión de imágenes de productos para catálogos e-commerce con 40,000+ productos.
 
 ## Características
 
-- **Dashboard de Productos**: Visualiza todos los productos con filtros por categoría, marca, estado e imagen
-- **Importación XLSX**: Carga catálogos completos desde archivos Excel
-- **Búsqueda de Imágenes**: Integración con Google Images via SerpAPI para buscar automáticamente imágenes
-  - Búsqueda individual: Busca y selecciona imágenes para un producto específico
-  - Búsqueda en lote: Busca imágenes para todos los productos de una categoría
-- **Gestión de Estado**: Seguimiento de productos por estado (Completo, Parcial, Pendiente, Sin imagen)
-- **Exportación XLSX**: Descarga el catálogo actualizado con URLs de imágenes
-- **Base de Datos SQLite**: Almacenamiento eficiente y rápido
-- **Interfaz Responsive**: Diseño moderno y móvil-friendly
+- **Dashboard**: Visualiza productos con filtros por categoría, marca y estado
+- **Importación XLSX**: Carga catálogos completos desde Excel
+- **Búsqueda de Imágenes**: Google Custom Search API para buscar imágenes automáticamente
+  - Búsqueda individual por producto
+  - Búsqueda en lote por categoría
+- **Gestión de Estado**: Completo, Parcial, Pendiente, Sin imagen
+- **Exportación**: Descarga catálogo actualizado con URLs de imágenes
+- **Base de Datos SQLite**: Almacenamiento eficiente
+- **Interfaz Responsive**: Diseño moderno con TailwindCSS
 
 ## Requisitos
 
 - Python 3.9+
-- pip
+- Google Custom Search API Key + CX ID (gratuito: 100 búsquedas/día)
 
-## Instalación
-
-### 1. Clonar/Descargar el proyecto
+## Instalación rápida
 
 ```bash
-cd /sessions/lucid-laughing-allen/mnt/"Productos Mapy"/mapy-image-manager
-```
+# 1. Clonar
+git clone https://github.com/thiagofregolao-blip/mapyimage.git
+cd mapyimage
 
-### 2. Crear entorno virtual
-
-```bash
+# 2. Crear entorno virtual
 python -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
-```
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-### 3. Instalar dependencias
-
-```bash
+# 3. Instalar dependencias
 pip install -r requirements.txt
-```
 
-### 4. Configurar SerpAPI
+# 4. Configurar API keys
+cp .env.example .env
+# Editar .env con tus keys (ver sección "Obtener API Keys")
 
-La búsqueda de imágenes requiere una clave de API de SerpAPI:
-
-1. Registrarse en [https://serpapi.com](https://serpapi.com)
-2. Obtener tu clave de API gratuita (100 búsquedas/mes)
-3. Exportar la clave como variable de entorno:
-
-```bash
-export SERPAPI_KEY="tu_clave_aqui"
-# En Windows: set SERPAPI_KEY=tu_clave_aqui
-```
-
-O crear un archivo `.env`:
-
-```
-SERPAPI_KEY=tu_clave_aqui
-```
-
-### 5. Inicializar la base de datos
-
-```bash
-python -c "from database import Database; Database()"
-```
-
-## Uso
-
-### Iniciar el servidor
-
-```bash
+# 5. Ejecutar
 python app.py
 ```
 
-O con uvicorn directamente:
+Abrir en el navegador: **http://localhost:8000**
 
+## Obtener API Keys (Google Custom Search)
+
+### Paso 1: API Key
+1. Ir a [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Crear un proyecto (o usar uno existente)
+3. Habilitar la **"Custom Search JSON API"**
+4. Ir a Credenciales → Crear credencial → API Key
+5. Copiar la key
+
+### Paso 2: Search Engine ID (CX)
+1. Ir a [Programmable Search Engine](https://programmablesearchengine.google.com/)
+2. Crear nuevo motor de búsqueda
+3. En "Sitios a buscar" poner `*` (toda la web)
+4. Activar "Búsqueda de imágenes"
+5. Copiar el ID del motor (CX)
+
+### Paso 3: Configurar
+Editar archivo `.env`:
+```
+GOOGLE_API_KEY=AIzaSy...tu_key_aqui
+GOOGLE_CX_ID=a1b2c3d4...tu_cx_aqui
+```
+
+### Límites gratuitos
+- **100 búsquedas/día** gratuitas
+- Después: $5 USD por cada 1,000 búsquedas
+- Para 40k productos: ~$200 USD total (o ~13 meses gratis a 100/día)
+
+## Uso
+
+### 1. Subir catálogo
+- Click en "Subir XLSX" en el menú
+- Seleccionar el archivo `Catalogo_Mapy_Final_V4.xlsx`
+- Esperar la importación (~30 segundos para 40k productos)
+
+### 2. Buscar imágenes
+- Ir a "Buscar Imágenes"
+- Seleccionar categoría (ej: "ELECTRONICA")
+- Click "Buscar" → el sistema busca imágenes automáticamente
+- Revisar y seleccionar las mejores 2 imágenes por producto
+
+### 3. Exportar
+- Click en "Descargar XLSX"
+- El archivo incluye las URLs de las imágenes seleccionadas
+
+## Estructura del proyecto
+
+```
+mapyimage/
+├── app.py              # API FastAPI (rutas y lógica)
+├── config.py           # Configuración (API keys, paths)
+├── database.py         # Capa de base de datos SQLite
+├── image_search.py     # Integración Google Custom Search
+├── xlsx_handler.py     # Importar/exportar Excel
+├── requirements.txt    # Dependencias Python
+├── .env.example        # Plantilla de configuración
+├── Dockerfile          # Deploy con Docker
+├── docker-compose.yml  # Docker Compose
+├── run.sh / run.bat    # Scripts de inicio
+├── templates/          # HTML (Jinja2)
+│   ├── base.html
+│   ├── dashboard.html
+│   ├── upload.html
+│   └── search.html
+└── static/             # CSS, JS, imágenes
+    ├── css/style.css
+    ├── js/app.js
+    └── images/placeholder.svg
+```
+
+## Deploy en la nube
+
+### Docker
 ```bash
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
+docker-compose up -d
 ```
 
-El servidor estará disponible en: **http://localhost:8000**
+### Railway
+1. Conectar repo en [railway.app](https://railway.app)
+2. Agregar variables de entorno (GOOGLE_API_KEY, GOOGLE_CX_ID)
+3. Deploy automático
 
-### Flujo de trabajo
+### Render
+1. Conectar repo en [render.com](https://render.com)
+2. Crear Web Service → Python
+3. Build command: `pip install -r requirements.txt`
+4. Start command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
 
-1. **Dashboard**: Visualiza los productos y su estado de imágenes
-2. **Subir XLSX**: Importa tu catálogo desde un archivo Excel
-3. **Buscar Imágenes**: Usa la búsqueda individual o en lote
-4. **Descargar XLSX**: Exporta los datos actualizados
+## Tecnologías
 
-## Estructura del Proyecto
-
-```
-mapy-image-manager/
-├── app.py                  # Aplicación FastAPI principal
-├── database.py            # Capa de base de datos SQLite
-├── image_search.py        # Integración con SerpAPI
-├── xlsx_handler.py        # Importación/exportación de Excel
-├── config.py              # Configuración
-├── requirements.txt       # Dependencias Python
-├── data/
-│   ├── products.db       # Base de datos SQLite
-│   └── images/           # Imágenes locales (futuro)
-├── templates/
-│   ├── base.html         # Template base
-│   ├── dashboard.html    # Dashboard principal
-│   ├── upload.html       # Página de importación
-│   └── search.html       # Página de búsqueda
-└── static/
-    ├── css/
-    │   └── style.css     # Estilos personalizados
-    └── js/
-        └── app.js        # JavaScript del cliente
-```
-
-## Formato XLSX esperado
-
-Las columnas requeridas en el archivo Excel son:
-
-| Columna | Requerido | Descripción |
-|---------|-----------|-------------|
-| SKU | Sí | Código único del producto |
-| MARCA | Sí | Marca del producto |
-| CATEGORIA | Sí | Categoría principal |
-| NOMBRE_ESTANDAR_ES | Sí | Nombre en español |
-| PRECO | Sí | Precio |
-| SUBCATEGORIA | No | Subcategoría |
-| NOMBRE_PADRONIZADO_PT | No | Nombre en portugués |
-| DESC_ECOMMERCE_ES | No | Descripción en español |
-| DESC_ECOMMERCE_PT | No | Descripción en portugués |
-| URL_IMAGEN | No | URL de imagen existente |
-
-## API Endpoints
-
-### Productos
-
-- `GET /` - Dashboard
-- `GET /api/products` - Listar productos (con filtros y paginación)
-- `GET /api/product/{id}` - Detalle de producto
-- `GET /api/stats` - Estadísticas del catálogo
-
-### Búsqueda de Imágenes
-
-- `POST /api/search-images/{id}` - Buscar imágenes para un producto
-- `POST /api/search-images-batch` - Búsqueda en lote por categoría
-- `GET /api/batch-progress/{batch_id}` - Progreso de búsqueda en lote
-- `POST /api/save-image/{id}` - Guardar imagen seleccionada
-
-### Importación/Exportación
-
-- `POST /upload` - Importar XLSX
-- `GET /api/export` - Descargar XLSX actualizado
-
-## Parámetros de Filtrado
-
-```
-GET /api/products?page=1&categoria=Electrónica&marca=Samsung&status=pending&search=laptop
-```
-
-- `page`: Número de página (defecto: 1)
-- `categoria`: Filtrar por categoría
-- `marca`: Filtrar por marca
-- `status`: pending, partial, complete, no_image
-- `search`: Búsqueda por SKU o nombre
-
-## Despliegue en Producción
-
-### Opción 1: Railway
-
-```bash
-# Instalar CLI de Railway
-npm i -g @railway/cli
-
-# Login y deploy
-railway login
-railway init
-railway up
-```
-
-### Opción 2: Heroku
-
-```bash
-# Crear Procfile
-echo "web: uvicorn app:app --host 0.0.0.0 --port $PORT" > Procfile
-
-# Deploy
-git init
-git add .
-git commit -m "Initial commit"
-heroku create tu-app-name
-git push heroku main
-```
-
-### Opción 3: VPS (DigitalOcean, Linode, etc.)
-
-```bash
-# En el servidor
-git clone tu-repositorio
-cd mapy-image-manager
-
-# Instalar
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Ejecutar con Gunicorn
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:8000 app:app
-```
-
-### Nginx Reverse Proxy (recomendado)
-
-```nginx
-server {
-    listen 80;
-    server_name tu-dominio.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-## Variables de Entorno
-
-```
-SERPAPI_KEY=tu_clave_api
-DATABASE_PATH=data/products.db
-MAX_SEARCH_RESULTS=10
-ITEMS_PER_PAGE=24
-```
-
-## Límites y Quotas
-
-### SerpAPI
-- **Plan Gratuito**: 100 búsquedas/mes
-- **Plan Starter**: 1,000 búsquedas/mes ($50)
-- **Plan Professional**: Unlimited ($300/mes)
-
-### Aplicación
-- **Máximo de productos**: 50,000
-- **Máximo de imágenes por búsqueda**: 10
-- **Concurrencia de búsqueda**: 3 productos simultáneamente
-- **Timeout de búsqueda**: 30 segundos
-
-## Solución de Problemas
-
-### "API key not configured"
-Asegúrate de establecer la variable de entorno `SERPAPI_KEY`.
-
-### "Database is locked"
-El archivo de base de datos está siendo accedido por otro proceso. Reinicia la aplicación.
-
-### "No images found"
-El motor de búsqueda no encontró imágenes. Intenta con un nombre de producto diferente.
-
-### "Out of quota"
-Has excedido el límite de búsquedas de tu plan de SerpAPI. Upgrade a un plan superior.
-
-## Rendimiento
-
-### Optimizaciones implementadas
-
-- Índices en base de datos para búsquedas rápidas
-- Paginación (24 productos por página)
-- Búsqueda concurrente (3 productos simultáneamente)
-- Caché en navegador para datos recientes
-- Lazy loading de imágenes
-- Compresión de respuestas
-
-### Benchmarks
-
-- Dashboard: <500ms
-- Búsqueda de imágenes individual: 2-5s
-- Búsqueda en lote (100 productos): 5-10 min
-- Importación XLSX (10,000 productos): 30-60s
-- Exportación XLSX (10,000 productos): 10-20s
-
-## Seguridad
-
-- Validación de entrada en todos los endpoints
-- Sanitización de datos
-- CORS configurado
-- SQL injection prevention (prepared statements)
-- Rate limiting (1.5s entre requests a SerpAPI)
-
-## Licencia
-
-Propietario - Catálogo Mapy
-
-## Soporte
-
-Para reportar bugs o solicitar features, contacta al equipo de desarrollo.
-
-## Changelog
-
-### v1.0.0 (2024)
-- Lanzamiento inicial
-- Dashboard completo
-- Búsqueda de imágenes
-- Importación/exportación XLSX
-- Estadísticas en tiempo real
+- **Backend**: Python, FastAPI, SQLite, Pandas
+- **Frontend**: HTML5, TailwindCSS, JavaScript
+- **API**: Google Custom Search JSON API
+- **Deploy**: Docker, Railway, Render
