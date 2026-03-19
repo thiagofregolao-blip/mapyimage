@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Mapy Image Manager{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+    <!-- Statistics Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-gray-600 text-sm font-medium">Total</p>
+            <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.total_products|default(0) }}</p>
+            <p class="text-xs text-gray-500 mt-1">productos</p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-gray-600 text-sm font-medium">Completado</p>
+            <p class="text-3xl font-bold text-green-600 mt-2">{{ stats.complete|default(0) }}</p>
+            <p class="text-xs text-gray-500 mt-1">con 2 imágenes</p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-gray-600 text-sm font-medium">Parcial</p>
+            <p class="text-3xl font-bold text-yellow-600 mt-2">{{ stats.partial|default(0) }}</p>
+            <p class="text-xs text-gray-500 mt-1">1 imagen</p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-gray-600 text-sm font-medium">Pendiente</p>
+            <p class="text-3xl font-bold text-red-600 mt-2">{{ stats.pending|default(0) }}</p>
+            <p class="text-xs text-gray-500 mt-1">sin imagen</p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-gray-600 text-sm font-medium">Sin imagen</p>
+            <p class="text-3xl font-bold text-gray-600 mt-2">{{ stats.no_image|default(0) }}</p>
+            <p class="text-xs text-gray-500 mt-1">no encontrada</p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <p class="text-gray-600 text-sm font-medium">Completado</p>
+            <p class="text-3xl font-bold text-blue-600 mt-2">{{ stats.completion_percentage|default(0) }}%</p>
+            <p class="text-xs text-gray-500 mt-1">del catálogo</p>
+        </div>
+    </div>
+
+    <!-- Filter and Search -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- Category Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Categoría</label>
+                <select id="category-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <option value="">Todas las categorías</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Brand Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Marca</label>
+                <select id="brand-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <option value="">Todas las marcas</option>
+                    {% for brand in brands %}
+                    <option value="{{ brand }}">{{ brand }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Status Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Estado</label>
+                <select id="status-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <option value="">Todos los estados</option>
+                    <option value="complete">Completado</option>
+                    <option value="partial">Parcial</option>
+                    <option value="pending">Pendiente</option>
+                    <option value="no_image">Sin imagen</option>
+                </select>
+            </div>
+
+            <!-- Search -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Buscar</label>
+                <input type="text" id="search-input" placeholder="SKU o nombre..." class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+            </div>
+        </div>
+    </div>
+
+    <!-- Products Grid -->
+    <div>
+        <div id="products-container" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <!-- Products will be loaded here -->
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading-state" class="text-center py-12">
+            <div class="inline-block">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+            <p class="text-gray-600 mt-4">Cargando productos...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="text-center py-12 hidden">
+            <p class="text-gray-600">No hay productos que coincidan con los filtros</p>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    <div id="pagination-container" class="flex justify-center items-center space-x-2 mt-8">
+        <!-- Pagination will be loaded here -->
+    </div>
+</div>
+
+<!-- Product Detail Modal -->
+<div id="product-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
+        <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+            <h3 id="modal-title" class="text-lg font-semibold">Detalles del Producto</h3>
+            <button onclick="closeProductModal()" class="text-gray-600 hover:text-gray-900">✕</button>
+        </div>
+        <div id="modal-content" class="p-6">
+            <!-- Content will be loaded here -->
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let currentFilters = {};
+
+async function loadProducts(page = 1) {
+    const container = document.getElementById('products-container');
+    const loadingState = document.getElementById('loading-state');
+    const emptyState = document.getElementById('empty-state');
+
+    loadingState.classList.remove('hidden');
+    container.innerHTML = '';
+    emptyState.classList.add('hidden');
+
+    const params = new URLSearchParams({
+        page: page,
+        categoria: document.getElementById('category-filter').value || '',
+        marca: document.getElementById('brand-filter').value || '',
+        status: document.getElementById('status-filter').value || '',
+        search: document.getElementById('search-input').value || ''
+    });
+
+    try {
+        const response = await fetch(`/api/products?${params}`);
+        const data = await response.json();
+
+        loadingState.classList.add('hidden');
+
+        if (data.success && data.data.length > 0) {
+            data.data.forEach(product => {
+                const card = createProductCard(product);
+                container.appendChild(card);
+            });
+
+            // Update pagination
+            updatePagination(data.pagination);
+            currentPage = page;
+        } else {
+            emptyState.classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('Error loading products:', error);
+        loadingState.classList.add('hidden');
+        showToast('Error al cargar productos', 'error');
+    }
+}
+
+function createProductCard(product) {
+    const card = document.createElement('div');
+    card.className = 'bg-white rounded-lg shadow hover:shadow-lg transition cursor-pointer';
+    card.onclick = () => showProductModal(product);
+
+    const statusBadge = getStatusBadge(product.image_status);
+    const imageUrl = product.image_url_1 || '/static/images/placeholder.png';
+
+    card.innerHTML = `
+        <div class="aspect-square overflow-hidden bg-gray-200 rounded-t-lg">
+            <img src="${imageUrl}" alt="${product.nombre_es}" class="w-full h-full object-cover hover:scale-110 transition">
+        </div>
+        <div class="p-4">
+            <div class="flex justify-between items-start mb-2">
+                <h3 class="font-semibold text-sm text-gray-900 line-clamp-2">${product.nombre_es || 'Sin nombre'}</h3>
+                ${statusBadge}
+            </div>
+            <p class="text-xs text-gray-600 mb-2">${product.marca || 'Sin marca'}</p>
+            <p class="text-xs text-gray-500 mb-3">${product.categoria || 'Sin categoría'}</p>
+            <div class="flex justify-between items-end">
+                <span class="font-bold text-blue-600">₲${product.preco?.toLocaleString() || '0'}</span>
+                <span class="text-xs text-gray-500">#${product.sku}</span>
+            </div>
+        </div>
+    `;
+
+    return card;
+}
+
+function getStatusBadge(status) {
+    const badges = {
+        'complete': { text: 'Completo', color: 'bg-green-100 text-green-800' },
+        'partial': { text: 'Parcial', color: 'bg-yellow-100 text-yellow-800' },
+        'pending': { text: 'Pendiente', color: 'bg-red-100 text-red-800' },
+        'no_image': { text: 'Sin imagen', color: 'bg-gray-100 text-gray-800' }
+    };
+
+    const badge = badges[status] || badges['pending'];
+    return `<span class="px-2 py-1 rounded text-xs font-medium ${badge.color}">${badge.text}</span>`;
+}
+
+function updatePagination(pagination) {
+    const container = document.getElementById('pagination-container');
+    container.innerHTML = '';
+
+    if (pagination.total_pages <= 1) return;
+
+    // Previous button
+    if (pagination.current_page > 1) {
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'px-3 py-1 border border-gray-300 rounded hover:bg-gray-100';
+        prevBtn.textContent = '← Anterior';
+        prevBtn.onclick = () => loadProducts(pagination.current_page - 1);
+        container.appendChild(prevBtn);
+    }
+
+    // Page numbers
+    for (let i = 1; i <= pagination.total_pages; i++) {
+        if (i === pagination.current_page ||
+            (i >= pagination.current_page - 2 && i <= pagination.current_page + 2) ||
+            i === 1 || i === pagination.total_pages) {
+
+            const btn = document.createElement('button');
+            btn.className = `px-3 py-1 rounded ${i === pagination.current_page ? 'bg-blue-600 text-white' : 'border border-gray-300 hover:bg-gray-100'}`;
+            btn.textContent = i;
+            btn.onclick = () => loadProducts(i);
+            container.appendChild(btn);
+        }
+    }
+
+    // Next button
+    if (pagination.current_page < pagination.total_pages) {
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'px-3 py-1 border border-gray-300 rounded hover:bg-gray-100';
+        nextBtn.textContent = 'Siguiente →';
+        nextBtn.onclick = () => loadProducts(pagination.current_page + 1);
+        container.appendChild(nextBtn);
+    }
+}
+
+function showProductModal(product) {
+    const modal = document.getElementById('product-modal');
+    const title = document.getElementById('modal-title');
+    const content = document.getElementById('modal-content');
+
+    title.textContent = product.nombre_es || 'Detalles del Producto';
+
+    const statusBadge = getStatusBadge(product.image_status);
+
+    content.innerHTML = `
+        <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                ${product.image_url_1 ? `
+                    <div>
+                        <p class="text-sm font-medium text-gray-700 mb-2">Imagen 1</p>
+                        <img src="${product.image_url_1}" alt="Imagen 1" class="w-full h-40 object-cover rounded">
+                    </div>
+                ` : ''}
+                ${product.image_url_2 ? `
+                    <div>
+                        <p class="text-sm font-medium text-gray-700 mb-2">Imagen 2</p>
+                        <img src="${product.image_url_2}" alt="Imagen 2" class="w-full h-40 object-cover rounded">
+                    </div>
+                ` : ''}
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                    <p class="text-gray-600">SKU</p>
+                    <p class="font-semibold">${product.sku}</p>
+                </div>
+                <div>
+                    <p class="text-gray-600">Marca</p>
+                    <p class="font-semibold">${product.marca || 'N/A'}</p>
+                </div>
+                <div>
+                    <p class="text-gray-600">Categoría</p>
+                    <p class="font-semibold">${product.categoria || 'N/A'}</p>
+                </div>
+                <div>
+                    <p class="text-gray-600">Precio</p>
+                    <p class="font-semibold">₲${product.preco?.toLocaleString() || '0'}</p>
+                </div>
+                <div class="col-span-2">
+                    <p class="text-gray-600">Estado</p>
+                    <p>${statusBadge}</p>
+                </div>
+            </div>
+
+            <div>
+                <p class="text-sm font-medium text-gray-700 mb-2">Descripción (Español)</p>
+                <p class="text-sm text-gray-600">${product.desc_es || 'Sin descripción'}</p>
+            </div>
+
+            <div>
+                <p class="text-sm font-medium text-gray-700 mb-2">Descripción (Portugués)</p>
+                <p class="text-sm text-gray-600">${product.desc_pt || 'Sin descripción'}</p>
+            </div>
+        </div>
+    `;
+
+    modal.classList.remove('hidden');
+}
+
+function closeProductModal() {
+    document.getElementById('product-modal').classList.add('hidden');
+}
+
+// Filter change handlers
+['category-filter', 'brand-filter', 'status-filter', 'search-input'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => loadProducts(1));
+    document.getElementById(id).addEventListener('input', () => loadProducts(1));
+});
+
+// Click outside modal to close
+document.getElementById('product-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'product-modal') {
+        closeProductModal();
+    }
+});
+
+// Load initial products
+loadProducts(1);
+</script>
+{% endblock %}

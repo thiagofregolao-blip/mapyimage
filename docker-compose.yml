@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  mapy-image-manager:
+    build: .
+    container_name: mapy-image-manager
+    ports:
+      - "8000:8000"
+    environment:
+      - SERPAPI_KEY=${SERPAPI_KEY}
+      - DATABASE_PATH=data/products.db
+      - ITEMS_PER_PAGE=24
+      - MAX_SEARCH_RESULTS=10
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./exports:/app/exports
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Optional: Add a volume for persistent data
+volumes:
+  mapy_data:
+    driver: local

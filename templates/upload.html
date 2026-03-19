@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block title %}Subir XLSX - Mapy Image Manager{% endblock %}
+{% block page_title %}Subir Archivo XLSX{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="bg-white rounded-lg shadow p-8">
+        <div class="mb-8">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">Importar Catálogo</h3>
+            <p class="text-gray-600 text-sm">Sube un archivo XLSX con los productos. El sistema importará automáticamente todos los datos al catálogo.</p>
+        </div>
+
+        <!-- Upload Area -->
+        <div id="upload-area" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition">
+            <div class="flex flex-col items-center">
+                <svg class="w-12 h-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <p class="text-gray-900 font-medium mb-1">Arrastra un archivo XLSX aquí</p>
+                <p class="text-gray-600 text-sm">o haz clic para seleccionar</p>
+                <input type="file" id="file-input" accept=".xlsx,.xls" class="hidden">
+            </div>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progress-section" class="hidden mt-8">
+            <div class="space-y-4">
+                <div>
+                    <p class="text-sm font-medium text-gray-700 mb-2">Progreso de importación</p>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div id="progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div id="status-text" class="text-sm text-gray-600">
+                    Preparando importación...
+                </div>
+
+                <div id="upload-results" class="hidden bg-gray-50 rounded-lg p-4">
+                    <div id="results-content"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Info (when selected) -->
+        <div id="file-info" class="hidden mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <p class="text-sm text-gray-700">Archivo seleccionado: <strong id="file-name"></strong></p>
+            <p class="text-sm text-gray-600 mt-1" id="file-size"></p>
+        </div>
+
+        <!-- Action Buttons -->
+        <div id="action-buttons" class="hidden mt-8 flex space-x-4">
+            <button id="upload-btn" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                Subir e Importar
+            </button>
+            <button id="cancel-btn" class="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-medium">
+                Cancelar
+            </button>
+        </div>
+
+        <!-- Tips -->
+        <div class="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p class="text-sm font-medium text-blue-900 mb-2">💡 Formato esperado</p>
+            <ul class="text-sm text-blue-800 space-y-1 list-disc list-inside">
+                <li>Columnas requeridas: SKU, MARCA, CATEGORIA, NOMBRE_ESTANDAR_ES, PRECO</li>
+                <li>Formatos soportados: .xlsx, .xls</li>
+                <li>Máximo: 50,000 productos por archivo</li>
+                <li>Los datos existentes serán reemplazados</li>
+            </ul>
+        </div>
+
+        <!-- Statistics -->
+        <div id="stats-section" class="hidden mt-8 grid grid-cols-3 gap-4">
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                <p class="text-sm text-gray-600 mb-1">Importados</p>
+                <p id="imported-count" class="text-2xl font-bold text-green-600">0</p>
+            </div>
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                <p class="text-sm text-gray-600 mb-1">Total</p>
+                <p id="total-count" class="text-2xl font-bold text-gray-600">0</p>
+            </div>
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+                <p class="text-sm text-gray-600 mb-1">Errores</p>
+                <p id="error-count" class="text-2xl font-bold text-red-600">0</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedFile = null;
+
+const uploadArea = document.getElementById('upload-area');
+const fileInput = document.getElementById('file-input');
+const fileInfo = document.getElementById('file-info');
+const actionButtons = document.getElementById('action-buttons');
+const uploadBtn = document.getElementById('upload-btn');
+const cancelBtn = document.getElementById('cancel-btn');
+const progressSection = document.getElementById('progress-section');
+const progressBar = document.getElementById('progress-bar');
+const statusText = document.getElementById('status-text');
+const uploadResults = document.getElementById('upload-results');
+const resultsContent = document.getElementById('results-content');
+const statsSection = document.getElementById('stats-section');
+
+// Upload area click
+uploadArea.addEventListener('click', () => fileInput.click());
+
+// Drag and drop
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('border-blue-500', 'bg-blue-50');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('border-blue-500', 'bg-blue-50');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('border-blue-500', 'bg-blue-50');
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        selectFile(files[0]);
+    }
+});
+
+// File input change
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        selectFile(e.target.files[0]);
+    }
+});
+
+function selectFile(file) {
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+        showToast('Solo se aceptan archivos XLSX o XLS', 'error');
+        return;
+    }
+
+    selectedFile = file;
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('file-size').textContent = `Tamaño: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+
+    fileInfo.classList.remove('hidden');
+    actionButtons.classList.remove('hidden');
+}
+
+uploadBtn.addEventListener('click', async () => {
+    if (!selectedFile) {
+        showToast('Selecciona un archivo primero', 'error');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    progressSection.classList.remove('hidden');
+    actionButtons.classList.add('hidden');
+    uploadArea.classList.add('opacity-50');
+
+    try {
+        // Simulate progress
+        let progress = 10;
+        const progressInterval = setInterval(() => {
+            if (progress < 90) {
+                progress += Math.random() * 30;
+                updateProgress(progress);
+            }
+        }, 500);
+
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        clearInterval(progressInterval);
+        updateProgress(100);
+
+        const data = await response.json();
+
+        if (data.success) {
+            statusText.textContent = '✓ Importación completada exitosamente';
+            statusText.classList.remove('text-gray-600');
+            statusText.classList.add('text-green-600', 'font-medium');
+
+            // Show results
+            uploadResults.classList.remove('hidden');
+            resultsContent.innerHTML = `
+                <div class="space-y-3">
+                    <h4 class="font-semibold text-gray-900">Resumen de Importación</h4>
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                            <p class="text-gray-600">Productos importados:</p>
+                            <p class="font-bold text-green-600">${data.imported}</p>
+                        </div>
+                        <div>
+                            <p class="text-gray-600">Completado del catálogo:</p>
+                            <p class="font-bold text-blue-600">${data.stats.completion_percentage}%</p>
+                        </div>
+                    </div>
+                    ${data.errors.length > 0 ? `
+                        <div class="mt-4">
+                            <p class="font-semibold text-red-600 mb-2">Errores encontrados (${data.errors.length}):</p>
+                            <ul class="text-sm text-red-600 space-y-1">
+                                ${data.errors.slice(0, 10).map(e => `<li>• ${e}</li>`).join('')}
+                                ${data.errors.length > 10 ? `<li>• ... y ${data.errors.length - 10} errores más</li>` : ''}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+
+            // Update stats
+            document.getElementById('imported-count').textContent = data.imported;
+            document.getElementById('total-count').textContent = data.stats.total_products;
+            document.getElementById('error-count').textContent = data.errors.length;
+            statsSection.classList.remove('hidden');
+
+            showToast('Catálogo importado exitosamente', 'success');
+
+            // Reset after 3 seconds
+            setTimeout(() => {
+                location.reload();
+            }, 3000);
+        } else {
+            statusText.textContent = '✗ Error en la importación: ' + (data.message || 'Error desconocido');
+            statusText.classList.remove('text-gray-600');
+            statusText.classList.add('text-red-600', 'font-medium');
+            showToast('Error en la importación', 'error');
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        statusText.textContent = '✗ Error al subir el archivo';
+        statusText.classList.remove('text-gray-600');
+        statusText.classList.add('text-red-600', 'font-medium');
+        showToast('Error al subir el archivo', 'error');
+    } finally {
+        uploadArea.classList.remove('opacity-50');
+    }
+});
+
+cancelBtn.addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    fileInfo.classList.add('hidden');
+    actionButtons.classList.add('hidden');
+    progressSection.classList.add('hidden');
+    uploadResults.classList.add('hidden');
+    statsSection.classList.add('hidden');
+});
+
+function updateProgress(percent) {
+    progressBar.style.width = percent + '%';
+}
+</script>
+{% endblock %}

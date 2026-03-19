@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Mapy Image Manager{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="bg-gray-50">
+    <div class="flex min-h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-900 text-white shadow-lg">
+            <div class="p-6 border-b border-gray-800">
+                <h1 class="text-2xl font-bold">
+                    <span class="text-blue-400">M</span><span class="text-purple-400">a</span><span class="text-pink-400">p</span><span class="text-yellow-400">y</span>
+                </h1>
+                <p class="text-sm text-gray-400 mt-1">Image Manager</p>
+            </div>
+
+            <nav class="mt-8">
+                <a href="/" class="block px-6 py-3 {% if request.url.path == '/' %}bg-blue-600{% else %}hover:bg-gray-800{% endif %} transition">
+                    <span class="text-lg">📊</span> Dashboard
+                </a>
+                <a href="/upload" class="block px-6 py-3 {% if request.url.path == '/upload' %}bg-blue-600{% else %}hover:bg-gray-800{% endif %} transition">
+                    <span class="text-lg">📤</span> Subir XLSX
+                </a>
+                <a href="/search" class="block px-6 py-3 {% if request.url.path == '/search' %}bg-blue-600{% else %}hover:bg-gray-800{% endif %} transition">
+                    <span class="text-lg">🔍</span> Buscar Imágenes
+                </a>
+                <a href="/api/export" class="block px-6 py-3 hover:bg-gray-800 transition">
+                    <span class="text-lg">📥</span> Descargar XLSX
+                </a>
+            </nav>
+
+            <div class="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-800 bg-gray-800">
+                <p class="text-xs text-gray-400">v1.0.0</p>
+                <p class="text-xs text-gray-500 mt-2">Catálogo Mapy</p>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1">
+            <!-- Header -->
+            <div class="bg-white border-b border-gray-200">
+                <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+                    <h2 class="text-xl font-semibold text-gray-900">{% block page_title %}{% endblock %}</h2>
+                    <div class="flex items-center space-x-4">
+                        <span class="text-sm text-gray-500">Paraguay 🇵🇾</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page Content -->
+            <div class="max-w-7xl mx-auto px-6 py-8">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
