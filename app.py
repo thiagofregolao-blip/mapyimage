@@ -323,6 +323,14 @@ async def save_image(product_id: int, image_url: str, position: int = 1):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# === CLEAR ALL PRODUCTS ROUTE ===
+@app.delete("/api/products/clear")
+async def clear_all_products():
+    """Delete all products from database"""
+    count = db.clear_all_products()
+    return {"success": True, "message": f"Deleted {count} products"}
+
+
 # === EXPORT ROUTE ===
 @app.get("/api/export")
 async def export_products():
