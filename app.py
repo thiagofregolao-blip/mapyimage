@@ -97,11 +97,9 @@ async def upload_xlsx(file: UploadFile = File(...)):
         products, count, errors = XLSXHandler.import_from_xlsx(str(temp_path))
 
         if products:
-            # Clear existing products before re-import
-            db.clear_all_products()
-
-            # Import products
-            inserted = db.bulk_insert_products(products)
+            # Upsert: new SKUs are inserted, existing SKUs have catalog data
+            # updated but their images are preserved
+            result = db.bulk_upsert_products(products)
 
             # Clean up temp file
             temp_path.unlink()
@@ -110,8 +108,12 @@ async def upload_xlsx(file: UploadFile = File(...)):
 
             return {
                 "success": True,
-                "message": f"Imported {inserted} products successfully",
-                "imported": inserted,
+                "message": (
+                    f"Import complete: {result['inserted']} new, "
+                    f"{result['updated']} updated (images preserved)"
+                ),
+                "imported": result["inserted"],
+                "updated": result["updated"],
                 "errors": errors,
                 "stats": stats
             }

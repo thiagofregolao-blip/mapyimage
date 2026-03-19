@@ -1,18 +1,20 @@
-import sqlite3
-from pathlib import Path
-from config import DATABASE_PATH, SQLITE_CHECK_SAME_THREAD
+import psycopg2
+import psycopg2.extras
+from config import DATABASE_URL
 from typing import Optional, List, Dict, Any
 
+
 class Database:
-    def __init__(self, db_path: str = DATABASE_PATH):
-        self.db_path = db_path
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_url: str = DATABASE_URL):
+        if not db_url:
+            raise RuntimeError("DATABASE_URL environment variable is not set")
+        self.db_url = db_url
         self.init_db()
 
     def get_connection(self):
-        """Get a database connection"""
-        conn = sqlite3.connect(self.db_path, check_same_thread=SQLITE_CHECK_SAME_THREAD)
-        conn.row_factory = sqlite3.Row
+        """Get a database connection with dict-like row access"""
+        conn = psycopg2.connect(self.db_url)
+        conn.autocommit = False
         return conn
 
     def init_db(self):
@@ -22,7 +24,7 @@ class Database:
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS products (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 sku TEXT UNIQUE NOT NULL,
                 descripcion_original TEXT,
                 marca TEXT,
@@ -35,32 +37,27 @@ class Database:
                 preco REAL,
                 image_url_1 TEXT,
                 image_url_2 TEXT,
-                image_status TEXT DEFAULT 'pending',
+                image_status TEXT DEFAULT \'pending\',
                 search_query TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # Create indexes for performance
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_sku ON products(sku)
-        ''')
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_categoria ON products(categoria)
-        ''')
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_marca ON products(marca)
-        ''')
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_status ON products(image_status)
-        ''')
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_search ON products(nombre_es)
-        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_sku ON products(sku)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_categoria ON products(categoria)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_marca ON products(marca)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_status ON products(image_status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_search ON products(nombre_es)')
 
         conn.commit()
+        cursor.close()
         conn.close()
+
+    def _row_to_dict(self, cursor, row) -> Dict[str, Any]:
+        """Convert a psycopg2 row to dict using column names"""
+        cols = [desc[0] for desc in cursor.description]
+        return dict(zip(cols, row))
 
     def insert_product(self, product_data: Dict[str, Any]) -> int:
         """Insert a single product"""
@@ -72,7 +69,8 @@ class Database:
                 INSERT INTO products (
                     sku, descripcion_original, marca, subcategoria, categoria,
                     nombre_es, nome_pt, desc_es, desc_pt, preco, image_status, search_query
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
             ''', (
                 product_data.get('sku'),
                 product_data.get('descripcion_original'),
@@ -85,31 +83,63 @@ class Database:
                 product_data.get('desc_pt'),
                 product_data.get('preco'),
                 product_data.get('image_status', 'pending'),
-                product_data.get('search_query', '')
+                product_data.get('search_query', ''),
             ))
+            product_id = cursor.fetchone()[0]
             conn.commit()
-            product_id = cursor.lastrowid
+            cursor.close()
             conn.close()
             return product_id
-        except sqlite3.IntegrityError:
+        except psycopg2.IntegrityError:
+            conn.rollback()
+            cursor.close()
             conn.close()
             return -1  # Duplicate SKU
 
-    def bulk_insert_products(self, products: List[Dict[str, Any]]) -> int:
-        """Insert multiple products efficiently"""
+    def bulk_upsert_products(self, products: List[Dict[str, Any]]) -> Dict[str, int]:
+        """
+        Upsert products: insert new ones, update catalog data for existing ones.
+        Images and image_status are NEVER overwritten for existing products,
+        unless the XLSX itself already carries an image URL.
+        """
         conn = self.get_connection()
         cursor = conn.cursor()
-        inserted = 0
+        inserted = updated = 0
 
         for product in products:
-            try:
+            sku = product.get('sku')
+            if not sku:
+                continue
+
+            cursor.execute(
+                'SELECT id, image_url_1, image_url_2, image_status FROM products WHERE sku = %s',
+                (sku,)
+            )
+            existing = cursor.fetchone()
+
+            if existing:
+                _id, ex_url1, ex_url2, ex_status = existing
+                new_image_url_1 = product.get('image_url_1') or ex_url1
+                new_image_status = ex_status
+                if product.get('image_url_1') and not ex_url1:
+                    new_image_status = 'complete'
+
                 cursor.execute('''
-                    INSERT INTO products (
-                        sku, descripcion_original, marca, subcategoria, categoria,
-                        nombre_es, nome_pt, desc_es, desc_pt, preco, image_status, search_query
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    UPDATE products SET
+                        descripcion_original = %s,
+                        marca = %s,
+                        subcategoria = %s,
+                        categoria = %s,
+                        nombre_es = %s,
+                        nome_pt = %s,
+                        desc_es = %s,
+                        desc_pt = %s,
+                        preco = %s,
+                        image_url_1 = %s,
+                        image_status = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE sku = %s
                 ''', (
-                    product.get('sku'),
                     product.get('descripcion_original'),
                     product.get('marca'),
                     product.get('subcategoria'),
@@ -119,25 +149,54 @@ class Database:
                     product.get('desc_es'),
                     product.get('desc_pt'),
                     product.get('preco'),
+                    new_image_url_1,
+                    new_image_status,
+                    sku,
+                ))
+                updated += 1
+            else:
+                cursor.execute('''
+                    INSERT INTO products (
+                        sku, descripcion_original, marca, subcategoria, categoria,
+                        nombre_es, nome_pt, desc_es, desc_pt, preco, image_url_1, image_status, search_query
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ''', (
+                    sku,
+                    product.get('descripcion_original'),
+                    product.get('marca'),
+                    product.get('subcategoria'),
+                    product.get('categoria'),
+                    product.get('nombre_es'),
+                    product.get('nome_pt'),
+                    product.get('desc_es'),
+                    product.get('desc_pt'),
+                    product.get('preco'),
+                    product.get('image_url_1'),
                     product.get('image_status', 'pending'),
-                    product.get('search_query', '')
+                    product.get('search_query', ''),
                 ))
                 inserted += 1
-            except sqlite3.IntegrityError:
-                pass  # Skip duplicates
 
         conn.commit()
+        cursor.close()
         conn.close()
-        return inserted
+        return {"inserted": inserted, "updated": updated}
+
+    def bulk_insert_products(self, products: List[Dict[str, Any]]) -> int:
+        """Kept for compatibility — delegates to bulk_upsert_products."""
+        result = self.bulk_upsert_products(products)
+        return result["inserted"] + result["updated"]
 
     def get_product(self, product_id: int) -> Optional[Dict[str, Any]]:
         """Get a single product by ID"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,))
-        result = cursor.fetchone()
+        cursor.execute('SELECT * FROM products WHERE id = %s', (product_id,))
+        row = cursor.fetchone()
+        result = self._row_to_dict(cursor, row) if row else None
+        cursor.close()
         conn.close()
-        return dict(result) if result else None
+        return result
 
     def get_products(
         self,
@@ -146,54 +205,48 @@ class Database:
         categoria: Optional[str] = None,
         marca: Optional[str] = None,
         status: Optional[str] = None,
-        search: Optional[str] = None
-    ) -> tuple[List[Dict[str, Any]], int]:
+        search: Optional[str] = None,
+    ) -> tuple:
         """Get paginated products with filters"""
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Build WHERE clause
         conditions = []
         params = []
 
         if categoria:
-            conditions.append("categoria = ?")
+            conditions.append("categoria = %s")
             params.append(categoria)
-
         if marca:
-            conditions.append("marca = ?")
+            conditions.append("marca = %s")
             params.append(marca)
-
         if status:
-            conditions.append("image_status = ?")
+            conditions.append("image_status = %s")
             params.append(status)
-
         if search:
-            conditions.append("(nombre_es LIKE ? OR sku LIKE ?)")
+            conditions.append("(nombre_es ILIKE %s OR sku ILIKE %s)")
             search_term = f"%{search}%"
             params.extend([search_term, search_term])
 
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
-        # Count total
-        count_query = f"SELECT COUNT(*) FROM products {where_clause}"
-        cursor.execute(count_query, params)
+        cursor.execute(f"SELECT COUNT(*) FROM products {where_clause}", params)
         total = cursor.fetchone()[0]
 
-        # Get paginated results
         offset = (page - 1) * per_page
-        query = f"""
+        cursor.execute(
+            f"""
             SELECT * FROM products
             {where_clause}
             ORDER BY updated_at DESC
-            LIMIT ? OFFSET ?
-        """
-        params.extend([per_page, offset])
-
-        cursor.execute(query, params)
-        products = [dict(row) for row in cursor.fetchall()]
+            LIMIT %s OFFSET %s
+            """,
+            params + [per_page, offset],
+        )
+        rows = cursor.fetchall()
+        products = [self._row_to_dict(cursor, r) for r in rows]
+        cursor.close()
         conn.close()
-
         return products, total
 
     def update_product_images(
@@ -201,7 +254,7 @@ class Database:
         product_id: int,
         image_url_1: Optional[str] = None,
         image_url_2: Optional[str] = None,
-        status: Optional[str] = None
+        status: Optional[str] = None,
     ) -> bool:
         """Update product images and status"""
         conn = self.get_connection()
@@ -211,27 +264,28 @@ class Database:
         params = []
 
         if image_url_1:
-            updates.append("image_url_1 = ?")
+            updates.append("image_url_1 = %s")
             params.append(image_url_1)
-
         if image_url_2:
-            updates.append("image_url_2 = ?")
+            updates.append("image_url_2 = %s")
             params.append(image_url_2)
-
         if status:
-            updates.append("image_status = ?")
+            updates.append("image_status = %s")
             params.append(status)
 
         if updates:
             updates.append("updated_at = CURRENT_TIMESTAMP")
             params.append(product_id)
-
-            query = f"UPDATE products SET {', '.join(updates)} WHERE id = ?"
-            cursor.execute(query, params)
+            cursor.execute(
+                f"UPDATE products SET {', '.join(updates)} WHERE id = %s",
+                params,
+            )
             conn.commit()
+            cursor.close()
             conn.close()
             return True
 
+        cursor.close()
         conn.close()
         return False
 
@@ -240,21 +294,19 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Total products
         cursor.execute("SELECT COUNT(*) FROM products")
         total = cursor.fetchone()[0]
 
-        # By status
         cursor.execute("SELECT image_status, COUNT(*) FROM products GROUP BY image_status")
         status_counts = {row[0]: row[1] for row in cursor.fetchall()}
 
-        # Unique categories and brands
         cursor.execute("SELECT COUNT(DISTINCT categoria) FROM products")
         total_categories = cursor.fetchone()[0]
 
         cursor.execute("SELECT COUNT(DISTINCT marca) FROM products")
         total_brands = cursor.fetchone()[0]
 
+        cursor.close()
         conn.close()
 
         return {
@@ -266,15 +318,20 @@ class Database:
             "complete": status_counts.get("complete", 0),
             "total_categories": total_categories,
             "total_brands": total_brands,
-            "completion_percentage": round((status_counts.get("complete", 0) / total * 100) if total > 0 else 0, 1)
+            "completion_percentage": round(
+                (status_counts.get("complete", 0) / total * 100) if total > 0 else 0, 1
+            ),
         }
 
     def get_categories(self) -> List[str]:
         """Get all unique categories"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT categoria FROM products WHERE categoria IS NOT NULL ORDER BY categoria")
+        cursor.execute(
+            "SELECT DISTINCT categoria FROM products WHERE categoria IS NOT NULL ORDER BY categoria"
+        )
         categories = [row[0] for row in cursor.fetchall()]
+        cursor.close()
         conn.close()
         return categories
 
@@ -282,20 +339,25 @@ class Database:
         """Get all unique brands"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT marca FROM products WHERE marca IS NOT NULL ORDER BY marca")
+        cursor.execute(
+            "SELECT DISTINCT marca FROM products WHERE marca IS NOT NULL ORDER BY marca"
+        )
         brands = [row[0] for row in cursor.fetchall()]
+        cursor.close()
         conn.close()
         return brands
 
     def get_products_by_category(self, categoria: str) -> List[Dict[str, Any]]:
-        """Get all products in a category (for batch search)"""
+        """Get pending products in a category (for batch search)"""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT * FROM products WHERE categoria = ? AND image_status = 'pending' LIMIT 100",
-            (categoria,)
+            "SELECT * FROM products WHERE categoria = %s AND image_status = 'pending' LIMIT 100",
+            (categoria,),
         )
-        products = [dict(row) for row in cursor.fetchall()]
+        rows = cursor.fetchall()
+        products = [self._row_to_dict(cursor, r) for r in rows]
+        cursor.close()
         conn.close()
         return products
 
@@ -305,14 +367,17 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM products")
         count = cursor.fetchone()[0]
+        cursor.close()
         conn.close()
         return count
 
     def clear_all_products(self) -> int:
-        """Clear all products (for re-import)"""
+        """Clear all products (use with caution — images will be lost)"""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM products")
+        count = cursor.rowcount
         conn.commit()
+        cursor.close()
         conn.close()
-        return cursor.rowcount
+        return count
