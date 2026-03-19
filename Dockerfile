@@ -19,12 +19,5 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p data uploads exports
 
-# Expose port
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000')" || exit 1
-
-# Run application
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run application (PORT is injected by Railway at runtime)
+CMD uvicorn app:app --host 0.0.0.0 --port $PORT
