@@ -411,6 +411,123 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
+# ============================================================
+# IMAGE DOWNLOADER ROUTES
+# ============================================================
+from image_downloader import ImageDownloader
+import threading
+
+download_state = {"status": "idle", "processed": 0, "total": 0, "complete": 0,
+                  "partial": 0, "failed": 0, "api_calls": 0, "downloaded": 0,
+                  "recent_logs": [], "stop_flag": False}
+
+
+@app.get("/image-manager", response_class=HTMLResponse)
+async def image_manager_page(request: Request):
+    return templates.TemplateResponse("image_manager.html", {"request": request})
+
+
+@app.post("/api/batch-download")
+async def start_batch_download(request: Request):
+    data = await request.json()
+    category = data.get("category")
+    api_key = data.get("api_key")
+    cx_id = data.get("cx_id")
+    imgs_per = data.get("images_per_product", 3)
+
+    if not all([category, api_key, cx_id]):
+        raise HTTPException(400, "Missing parameters")
+
+    download_state.update({"status": "running", "processed": 0, "total": 0,
+                           "complete": 0, "partial": 0, "failed": 0,
+                           "api_calls": 0, "downloaded": 0, "recent_logs": [],
+                           "stop_flag": False})
+
+    async def run_download():
+        downloader = ImageDownloader(api_key=api_key, cx_id=cx_id)
+        await downloader.init()
+        try:
+            # Find xlsx
+            import glob
+            xlsx_files = glob.glob("uploads/*.xlsx") + glob.glob("../Catalogo_Mapy_Final_V4.xlsx")
+            products = db.get_products(category=category, limit=50000)
+
+            download_state["total"] = len(products)
+
+            for i, prod in enumerate(products):
+                if download_state["stop_flag"]:
+                    break
+
+                result = await downloader.process_product(prod, f"data/images/{category.replace('/','_')}")
+                download_state["processed"] = i + 1
+                download_state["api_calls"] = downloader.daily_count
+
+                if result["status"] == "complete":
+                    download_state["complete"] += 1
+                    download_state["downloaded"] += len(result.get("images", []))
+                    # Save URLs to DB
+                    urls = [img["url"] for img in result.get("images", [])]
+                    if len(urls) >= 1:
+                        db.update_product_image(prod["id"], urls[0], urls[1] if len(urls) > 1 else None)
+                elif result["status"] == "partial":
+                    download_state["partial"] += 1
+                    download_state["downloaded"] += len(result.get("images", []))
+                    urls = [img["url"] for img in result.get("images", [])]
+                    if urls:
+                        db.update_product_image(prod["id"], urls[0], None)
+                else:
+                    download_state["failed"] += 1
+
+                if downloader.daily_count >= 95:
+                    download_state["recent_logs"].append("⚠️ Límite diario API alcanzado!")
+                    break
+
+        finally:
+            await downloader.close()
+            download_state["status"] = "done"
+
+    asyncio.create_task(run_download())
+    return {"success": True, "message": "Download started"}
+
+
+@app.get("/api/download-progress")
+async def get_download_progress():
+    return download_state
+
+
+@app.post("/api/stop-download")
+async def stop_download():
+    download_state["stop_flag"] = True
+    return {"success": True}
+
+
+@app.get("/api/export-images")
+async def export_with_images():
+    """Export XLSX with image URLs"""
+    products = db.get_products(limit=50000)
+    if not products:
+        raise HTTPException(404, "No products found")
+
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Products"
+    headers = ["SKU", "DESCRIPCION", "MARCA", "CATEGORIA", "SUBCATEGORIA",
+               "NOMBRE_ES", "NOME_PT", "IMAGE_URL_1", "IMAGE_URL_2", "STATUS"]
+    ws.append(headers)
+
+    for p in products:
+        ws.append([p.get("sku"), p.get("descripcion_original"), p.get("marca"),
+                   p.get("categoria"), p.get("subcategoria"),
+                   p.get("nombre_es"), p.get("nome_pt"),
+                   p.get("image_url_1", ""), p.get("image_url_2", ""),
+                   p.get("image_status", "pending")])
+
+    filepath = "data/export_with_images.xlsx"
+    wb.save(filepath)
+    return FileResponse(filepath, filename="Catalogo_Mapy_Con_Imagenes.xlsx")
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))

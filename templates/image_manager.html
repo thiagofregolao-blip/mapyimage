@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapy Image Downloader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .status-complete { background: #d1fae5; color: #065f46; }
+        .status-partial { background: #fef3c7; color: #92400e; }
+        .status-pending { background: #fee2e2; color: #991b1b; }
+        .status-running { background: #dbeafe; color: #1e40af; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
+        .card { transition: all 0.2s; }
+        .progress-bar { transition: width 0.5s ease; }
+        .img-thumb { object-fit: cover; cursor: pointer; }
+        .img-thumb:hover { opacity: 0.8; }
+        .category-card { cursor: pointer; transition: all 0.2s; }
+        .category-card:hover { transform: scale(1.02); }
+        .category-card.active { border-color: #3b82f6; border-width: 3px; }
+        #log-container { font-family: monospace; font-size: 12px; }
+        .fade-in { animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <div class="bg-gradient-to-r from-blue-700 to-purple-700 text-white py-6 px-8 shadow-lg">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold">Mapy Image Downloader</h1>
+                <p class="text-blue-200 mt-1">Sistema de descarga de imágenes de productos</p>
+            </div>
+            <div class="text-right">
+                <div id="api-status" class="text-sm bg-white/20 px-3 py-1 rounded-full">
+                    API: <span id="api-calls">0</span>/100 diarias
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto px-8 py-6">
+        <!-- Config Section -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-6">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">⚙️ Configuración API</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="text-sm text-gray-600">Google API Key</label>
+                    <input type="password" id="api-key" class="w-full border rounded-lg px-3 py-2 mt-1" placeholder="AIzaSy...">
+                </div>
+                <div>
+                    <label class="text-sm text-gray-600">Google CX ID</label>
+                    <input type="text" id="cx-id" class="w-full border rounded-lg px-3 py-2 mt-1" placeholder="a1b2c3d4...">
+                </div>
+                <div>
+                    <label class="text-sm text-gray-600">Imágenes por producto</label>
+                    <select id="imgs-per-product" class="w-full border rounded-lg px-3 py-2 mt-1">
+                        <option value="2">2 imágenes</option>
+                        <option value="3" selected>3 imágenes</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div class="bg-white rounded-xl shadow p-4 text-center">
+                <div class="text-3xl font-bold text-gray-800" id="stat-total">0</div>
+                <div class="text-sm text-gray-500">Total Productos</div>
+            </div>
+            <div class="bg-white rounded-xl shadow p-4 text-center">
+                <div class="text-3xl font-bold text-green-600" id="stat-complete">0</div>
+                <div class="text-sm text-gray-500">Completos (2-3 img)</div>
+            </div>
+            <div class="bg-white rounded-xl shadow p-4 text-center">
+                <div class="text-3xl font-bold text-yellow-600" id="stat-partial">0</div>
+                <div class="text-sm text-gray-500">Parciales (1 img)</div>
+            </div>
+            <div class="bg-white rounded-xl shadow p-4 text-center">
+                <div class="text-3xl font-bold text-red-600" id="stat-pending">0</div>
+                <div class="text-sm text-gray-500">Pendientes</div>
+            </div>
+            <div class="bg-white rounded-xl shadow p-4 text-center">
+                <div class="text-3xl font-bold text-blue-600" id="stat-pct">0%</div>
+                <div class="text-sm text-gray-500">Progreso</div>
+            </div>
+        </div>
+
+        <!-- Category Selection -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-6">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">📂 Seleccionar Categoría</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="categories-grid">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex gap-4 mb-6">
+            <button onclick="startBatch()" id="btn-start"
+                class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition flex items-center gap-2">
+                🚀 Iniciar Descarga
+            </button>
+            <button onclick="stopBatch()" id="btn-stop"
+                class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition hidden">
+                ⏹ Detener
+            </button>
+            <button onclick="exportResults()"
+                class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition">
+                📥 Exportar Resultados
+            </button>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-6" id="progress-section" style="display:none">
+            <div class="flex justify-between mb-2">
+                <span class="font-bold text-gray-700" id="progress-label">Procesando...</span>
+                <span class="text-gray-500" id="progress-count">0/0</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-4">
+                <div class="bg-blue-600 h-4 rounded-full progress-bar" id="progress-bar" style="width:0%"></div>
+            </div>
+            <div class="mt-2 text-sm text-gray-500" id="progress-eta">Tiempo estimado: calculando...</div>
+        </div>
+
+        <!-- Results Log -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-6">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">📋 Resultados</h2>
+            <div id="log-container" class="max-h-96 overflow-y-auto bg-gray-900 text-green-400 rounded-lg p-4">
+                <p>Sistema listo. Configure API key y seleccione categoría para comenzar.</p>
+            </div>
+        </div>
+
+        <!-- Product Grid (shows results) -->
+        <div class="bg-white rounded-xl shadow-md p-6">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">🖼️ Productos con Imágenes</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" id="products-grid">
+                <p class="text-gray-400 col-span-full text-center py-8">Inicie la descarga para ver productos aquí.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // STATE
+        // ============================================================
+        let state = {
+            running: false,
+            selectedCategory: null,
+            products: [],
+            progress: {},
+            apiCalls: 0,
+            startTime: null,
+        };
+
+        const CATEGORIES = [
+            { name: "ELECTRONICA", count: 2980, ml_pct: 66 },
+            { name: "INFORMATICA", count: 2379, ml_pct: 67 },
+            { name: "PERFUMERIA", count: 2942, ml_pct: 42 },
+            { name: "MODA ROPA Y ACCES.", count: 5210, ml_pct: 78 },
+            { name: "DEPORTES", count: 2651, ml_pct: 74 },
+            { name: "NIÑOS", count: 7044, ml_pct: 66 },
+            { name: "CASA/COCINA", count: 3735, ml_pct: 65 },
+            { name: "COSMETICOS SALUD E HIG.", count: 5652, ml_pct: 49 },
+            { name: "CAMPING/PESCA/FERR/JARD/AUTO", count: 6075, ml_pct: 54 },
+            { name: "BEBIDAS", count: 1370, ml_pct: 28 },
+            { name: "COMESTIBLES", count: 934, ml_pct: 34 },
+        ];
+
+        // ============================================================
+        // INIT
+        // ============================================================
+        function init() {
+            renderCategories();
+            updateStats();
+            // Load saved keys
+            const savedKey = localStorage.getItem('google_api_key');
+            const savedCx = localStorage.getItem('google_cx_id');
+            if (savedKey) document.getElementById('api-key').value = savedKey;
+            if (savedCx) document.getElementById('cx-id').value = savedCx;
+        }
+
+        function renderCategories() {
+            const grid = document.getElementById('categories-grid');
+            grid.innerHTML = CATEGORIES.map(cat => `
+                <div class="category-card border-2 border-gray-200 rounded-xl p-4 ${state.selectedCategory === cat.name ? 'active' : ''}"
+                     onclick="selectCategory('${cat.name}')">
+                    <div class="font-bold text-gray-800 text-sm">${cat.name}</div>
+                    <div class="text-2xl font-bold text-blue-600">${cat.count.toLocaleString()}</div>
+                    <div class="text-xs text-gray-500">~${cat.ml_pct}% en Mercado Livre</div>
+                    <div class="mt-2 w-full bg-gray-200 rounded-full h-2">
+                        <div class="bg-green-500 h-2 rounded-full" style="width:${cat.ml_pct}%"></div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function selectCategory(name) {
+            state.selectedCategory = name;
+            renderCategories();
+            log(`📂 Categoría seleccionada: ${name}`);
+        }
+
+        // ============================================================
+        // SEARCH & DOWNLOAD (via backend API)
+        // ============================================================
+        async function startBatch() {
+            const apiKey = document.getElementById('api-key').value.trim();
+            const cxId = document.getElementById('cx-id').value.trim();
+
+            if (!apiKey || !cxId) {
+                log('❌ Configure Google API Key y CX ID primero!', 'error');
+                return;
+            }
+
+            // Save keys
+            localStorage.setItem('google_api_key', apiKey);
+            localStorage.setItem('google_cx_id', cxId);
+
+            if (!state.selectedCategory) {
+                log('❌ Seleccione una categoría primero!', 'error');
+                return;
+            }
+
+            state.running = true;
+            state.startTime = Date.now();
+            document.getElementById('btn-start').classList.add('hidden');
+            document.getElementById('btn-stop').classList.remove('hidden');
+            document.getElementById('progress-section').style.display = 'block';
+
+            log(`🚀 Iniciando descarga para: ${state.selectedCategory}`);
+
+            try {
+                const response = await fetch('/api/batch-download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        category: state.selectedCategory,
+                        api_key: apiKey,
+                        cx_id: cxId,
+                        images_per_product: parseInt(document.getElementById('imgs-per-product').value),
+                    })
+                });
+
+                if (response.ok) {
+                    log('✅ Batch job started! Monitoreando progreso...');
+                    pollProgress();
+                } else {
+                    log('❌ Error starting batch: ' + await response.text(), 'error');
+                    stopBatch();
+                }
+            } catch (e) {
+                log('❌ Connection error: ' + e.message, 'error');
+                stopBatch();
+            }
+        }
+
+        async function pollProgress() {
+            if (!state.running) return;
+
+            try {
+                const resp = await fetch('/api/download-progress');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    updateProgressUI(data);
+
+                    if (data.status === 'running') {
+                        setTimeout(pollProgress, 2000);
+                    } else {
+                        log(`✅ Descarga completada! ${data.downloaded} imágenes descargadas.`);
+                        stopBatch();
+                    }
+                }
+            } catch (e) {
+                setTimeout(pollProgress, 3000);
+            }
+        }
+
+        function updateProgressUI(data) {
+            const pct = data.total > 0 ? (data.processed / data.total * 100).toFixed(1) : 0;
+            document.getElementById('progress-bar').style.width = pct + '%';
+            document.getElementById('progress-count').textContent = `${data.processed}/${data.total}`;
+            document.getElementById('progress-label').textContent = `Procesando ${state.selectedCategory}...`;
+            document.getElementById('api-calls').textContent = data.api_calls || 0;
+
+            // ETA
+            if (data.processed > 0 && state.startTime) {
+                const elapsed = (Date.now() - state.startTime) / 1000;
+                const rate = data.processed / elapsed;
+                const remaining = (data.total - data.processed) / rate;
+                const mins = Math.floor(remaining / 60);
+                const secs = Math.floor(remaining % 60);
+                document.getElementById('progress-eta').textContent =
+                    `Velocidad: ${rate.toFixed(1)} prod/s | ETA: ${mins}m ${secs}s`;
+            }
+
+            // Stats
+            document.getElementById('stat-total').textContent = data.total;
+            document.getElementById('stat-complete').textContent = data.complete || 0;
+            document.getElementById('stat-partial').textContent = data.partial || 0;
+            document.getElementById('stat-pending').textContent = data.total - (data.processed || 0);
+            document.getElementById('stat-pct').textContent = pct + '%';
+
+            // Log recent items
+            if (data.recent_logs) {
+                data.recent_logs.forEach(l => log(l));
+            }
+        }
+
+        function stopBatch() {
+            state.running = false;
+            document.getElementById('btn-start').classList.remove('hidden');
+            document.getElementById('btn-stop').classList.add('hidden');
+            fetch('/api/stop-download', { method: 'POST' }).catch(() => {});
+        }
+
+        async function exportResults() {
+            log('📥 Exportando resultados...');
+            window.open('/api/export-images', '_blank');
+        }
+
+        function updateStats() {
+            document.getElementById('stat-total').textContent =
+                CATEGORIES.reduce((sum, c) => sum + c.count, 0).toLocaleString();
+        }
+
+        // ============================================================
+        // LOG
+        // ============================================================
+        function log(msg, type = 'info') {
+            const container = document.getElementById('log-container');
+            const time = new Date().toLocaleTimeString();
+            const color = type === 'error' ? 'text-red-400' : (type === 'warn' ? 'text-yellow-400' : 'text-green-400');
+            container.innerHTML += `<p class="${color} fade-in">[${time}] ${msg}</p>`;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        init();
+    </script>
+</body>
+</html>
