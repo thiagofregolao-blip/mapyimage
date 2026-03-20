@@ -352,7 +352,7 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT * FROM products WHERE categoria = %s LIMIT 100",
+            "SELECT * FROM products WHERE categoria = %s LIMIT 500",
             (categoria,),
         )
         rows = cursor.fetchall()
