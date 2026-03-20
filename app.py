@@ -293,13 +293,19 @@ async def get_batch_progress(batch_id: str):
 
 # === SAVE IMAGE ROUTE ===
 @app.post("/api/save-image/{product_id}")
-async def save_image(product_id: int, image_url: str, position: int = 1):
+async def save_image(product_id: int, payload: dict):
     """Save selected image to product"""
     product = db.get_product(product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
     try:
+        image_url = payload.get("image_url")
+        position = int(payload.get("position", 1))
+
+        if not image_url:
+            raise HTTPException(status_code=400, detail="image_url is required")
+
         if position == 1:
             db.update_product_images(product_id, image_url_1=image_url)
         elif position == 2:

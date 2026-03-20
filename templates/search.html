@@ -22,7 +22,7 @@
             </div>
 
             <div id="batch-stats" class="hidden p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p class="text-sm">Productos pendientes: <strong id="batch-pending-count">0</strong></p>
+                <p class="text-sm">Productos en categoría: <strong id="batch-pending-count">0</strong></p>
             </div>
 
             <button id="batch-search-btn" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium" onclick="startBatchSearch()">
@@ -160,10 +160,8 @@ async function startBatchSearch() {
     document.getElementById('batch-search-btn').disabled = true;
 
     try {
-        const response = await fetch('/api/search-images-batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ categoria })
+        const response = await fetch(`/api/search-images-batch?categoria=${encodeURIComponent(categoria)}`, {
+            method: 'POST'
         });
 
         const data = await response.json();
@@ -383,8 +381,14 @@ document.getElementById('batch-category-select').addEventListener('change', asyn
         return;
     }
 
-    // Show stats placeholder (actual count would need backend endpoint)
-    document.getElementById('batch-stats').classList.remove('hidden');
+    try {
+        const res = await fetch(`/api/products?categoria=${encodeURIComponent(categoria)}&per_page=1`);
+        const d = await res.json();
+        document.getElementById('batch-pending-count').textContent = d.pagination?.total_items ?? 0;
+        document.getElementById('batch-stats').classList.remove('hidden');
+    } catch (_) {
+        document.getElementById('batch-stats').classList.remove('hidden');
+    }
 });
 </script>
 {% endblock %}

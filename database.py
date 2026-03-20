@@ -348,11 +348,11 @@ class Database:
         return brands
 
     def get_products_by_category(self, categoria: str) -> List[Dict[str, Any]]:
-        """Get pending products in a category (for batch search)"""
+        """Get all products in a category for batch search"""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT * FROM products WHERE categoria = %s AND image_status = 'pending' LIMIT 100",
+            "SELECT * FROM products WHERE categoria = %s LIMIT 100",
             (categoria,),
         )
         rows = cursor.fetchall()
